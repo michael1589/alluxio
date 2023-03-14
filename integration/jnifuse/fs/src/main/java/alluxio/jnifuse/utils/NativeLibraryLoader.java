@@ -228,6 +228,7 @@ public class NativeLibraryLoader {
     if (LOAD_STATE.get() == LoadState.NOT_LOADED) {
       String libPath = loadLibraryFromJarToTemp(
           sharedLibraryFileName, jniLibraryFileName, tmpDir).getAbsolutePath();
+      LOG.info("libPath {}", libPath);
       System.load(libPath);
       LOG.info("Loaded lib by jar from path {}.", libPath);
     }
@@ -236,8 +237,10 @@ public class NativeLibraryLoader {
   File loadLibraryFromJarToTemp(final String sharedLibraryFileName,
       final String jniLibraryFileName, final String tmpDir) throws IOException {
     final File temp;
+    LOG.info("loadLibraryFromJarToTemp params: {},{},{}", sharedLibraryFileName, jniLibraryFileName, tmpDir);
     if (tmpDir == null || tmpDir.isEmpty()) {
       temp = File.createTempFile(TEMP_FILE_PREFIX, TEMP_FILE_SUFFIX);
+      LOG.info("temp file: {}", temp.getAbsolutePath());
     } else {
       temp = new File(tmpDir, jniLibraryFileName);
       if (temp.exists() && !temp.delete()) {

@@ -127,7 +127,7 @@ func getCommonMvnArgs(hadoopVersion version) []string {
 	// Ensure that the "-T" parameter passed from "-mvn_args" can take effect,
 	// because only the first -T parameter in "mvn" command will take effect.
 	// If the -T parameter is not given in "-mvn_args", this configuration will take effect.
-	args = append(args, "-T", "1")
+	args = append(args, "-T", "8")
 	return args
 }
 
@@ -310,8 +310,10 @@ func generateTarball(opts *GenerateTarballOpts) error {
 	mvnArgs := getCommonMvnArgs(hadoopVersion)
 	if opts.SkipUI || opts.Fuse {
 		mvnArgsNoUI := append(mvnArgs, "-pl", "!webui")
+		println(strings.Join(mvnArgsNoUI, " "))
 		run("compiling repo without UI", "mvn", mvnArgsNoUI...)
 	} else {
+		println(strings.Join(mvnArgs, " "))
 		run("compiling repo", "mvn", mvnArgs...)
 	}
 

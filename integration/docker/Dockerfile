@@ -30,15 +30,18 @@ RUN cd /alluxio-csi && \
 #   See - https://github.com/moby/moby/issues/35525
 FROM alpine:3.10.2 AS alluxio-extractor
 # Note that downloads for *-SNAPSHOT tarballs are not available.
-ARG ALLUXIO_TARBALL=http://downloads.alluxio.io/downloads/files/2.9.2/alluxio-2.9.2-bin.tar.gz
+ARG ALLUXIO_TARBALL=https://downloads.alluxio.io/downloads/files/2.9.2/alluxio-2.9.2-bin.tar.gz
 # (Alert):It's not recommended to set this Argument to true, unless you know exactly what you are doing
 ARG ENABLE_DYNAMIC_USER=false
 
-ADD ${ALLUXIO_TARBALL} /opt/
+WORKDIR /opt
 # Remote tarball needs to be untarred. Local tarball is untarred automatically.
 # Use ln -s instead of mv to avoid issues with Centos (see https://github.com/moby/moby/issues/27358)
 RUN cd /opt && \
-    (if ls | grep -q ".tar.gz"; then tar -xzf *.tar.gz && rm *.tar.gz; fi) && \
+    ARCH=$(uname -m) && \
+    echo ARCH=${ARCH} && \
+    wget https://mztest.obs.cn-central-221.ovaijisuan.com:443/alluxio-tar-ball/${ARCH}/alluxio-2.9.2.tar.gz && \
+    tar -xzf *.tar.gz && rm *.tar.gz && \
     ln -s alluxio-* alluxio
 
 RUN if [ ${ENABLE_DYNAMIC_USER} = "true" ] ; then \
@@ -47,8 +50,7 @@ RUN if [ ${ENABLE_DYNAMIC_USER} = "true" ] ; then \
 
 # Configure Java
 FROM centos:7 as build_java8
-RUN \
-    yum update -y && yum upgrade -y && \
+RUN yum update -y && yum upgrade -y && \
     yum install -y java-1.8.0-openjdk-devel java-1.8.0-openjdk && \
     yum clean all
 ENV JAVA_HOME /usr/lib/jvm/java-1.8.0-openjdk
@@ -56,8 +58,7 @@ ENV JAVA_HOME /usr/lib/jvm/java-1.8.0-openjdk
 RUN echo "networkaddress.cache.ttl=0" >> /usr/lib/jvm/java-1.8.0-openjdk/jre/lib/security/java.security
 
 FROM centos:7 as build_java11
-RUN \
-    yum update -y && yum upgrade -y && \
+RUN yum update -y && yum upgrade -y && \
     yum install -y java-11-openjdk-devel java-11-openjdk && \
     yum clean all
 ENV JAVA_HOME /usr/lib/jvm/java-11-openjdk
@@ -69,10 +70,9 @@ FROM build_java${JAVA_VERSION} AS final
 WORKDIR /
 
 # Install libfuse2 and libfuse3. Libfuse2 setup is modified from cheyang/fuse2:ubuntu1604-customize to be applied on centOS
-RUN \
-    yum install -y ca-certificates pkgconfig wget udev git && \
+RUN yum install -y ca-certificates pkgconfig wget udev git && \
     yum install -y gcc gcc-c++ make cmake gettext-devel libtool autoconf && \
-    git clone https://github.com/Alluxio/libfuse.git && \
+    git clone https://github.com/michael1589/libfuse.git && \
     cd libfuse && \
     git checkout fuse_2_9_5_customize_multi_threads && \
     bash makeconf.sh && \
@@ -104,8 +104,6 @@ ARG ENABLE_DYNAMIC_USER=true
 # Add Tini for Alluxio helm charts (https://github.com/Alluxio/alluxio/pull/12233)
 # - https://github.com/krallin/tini
 ENV TINI_VERSION v0.18.0
-ADD https://github.com/krallin/tini/releases/download/${TINI_VERSION}/tini-static /usr/local/bin/tini
-RUN chmod +x /usr/local/bin/tini
 
 # If Alluxio user, group, gid, and uid aren't root|0, create the alluxio user and set file permissions accordingly
 RUN if [ ${ALLUXIO_USERNAME} != "root" ] \

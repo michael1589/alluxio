@@ -10,13 +10,13 @@
 
 CXX := g++
 UNAME := $(shell uname)
-INCDIR = -I /usr/include -I $(JAVA_HOME)/include -I ./
+INCDIR = -I $(JAVA_HOME)/include -I ./
 
 FUSE2_LIBS := $(shell pkg-config fuse --libs)
-FUSE2_CXXFLAGS := $(shell pkg-config fuse --cflags) -DFUSE_USE_VERSION=29
+FUSE2_CXXFLAGS := $(shell pkg-config fuse --cflags) -DFUSE_USE_VERSION=29 -fpermissive
 
 FUSE3_LIBS := $(shell pkg-config fuse3 --libs)
-FUSE3_CXXFLAGS := $(shell pkg-config fuse3 --cflags) -DFUSE_USE_VERSION=30
+FUSE3_CXXFLAGS := $(shell pkg-config fuse3 --cflags) -DFUSE_USE_VERSION=30 -fpermissive
 
 # Linux
 ifeq ($(UNAME), Linux)
@@ -34,10 +34,10 @@ endif
 
 COMMON_FLAGS = -std=c++11 -Wall -fPIC -D_FILE_OFFSET_BITS=64 ${INCDIR}
 
-FUSE2_CXXFLAGS += ${COMMON_FLAGS}
+FUSE2_CXXFLAGS += ${COMMON_FLAGS} -I /usr/include
 FUSE2_LDFLAGS = -shared ${FUSE2_LIBS}
 
-FUSE3_CXXFLAGS += ${COMMON_FLAGS}
+FUSE3_CXXFLAGS += ${COMMON_FLAGS} -I /usr/include/fuse3
 FUSE3_LDFLAGS = -shared ${FUSE3_LIBS}
 
 OUTPUT_DIR ?= .
