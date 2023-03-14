@@ -16,28 +16,51 @@ ARG JAVA_VERSION=8
 # Setup CSI
 FROM golang:1.15.13-alpine AS csi-dev
 ENV GO111MODULE=on
-RUN mkdir -p /alluxio-csi
-COPY ./csi /alluxio-csi
+RUN mkdir -p /alluxio-csi && go env -w  GOPROXY=https://goproxy.cn,direct
+COPY integration/docker/csi /alluxio-csi
 RUN cd /alluxio-csi && \
     CGO_ENABLED=0 go build -o /usr/local/bin/alluxio-csi
 
-# We have to do an ADD to put the tarball into extractor, then do a COPY with chown into final
-# ADD then chown in two steps will double the image size
-#   See - https://stackoverflow.com/questions/30085621/why-does-chown-increase-size-of-docker-image
-#       - https://github.com/moby/moby/issues/5505
-#       - https://github.com/moby/moby/issues/6119
-# ADD with chown doesn't chown the files inside tarball
-#   See - https://github.com/moby/moby/issues/35525
-FROM swr.cn-central-221.ovaijisuan.com/taichu-studio/alluxio-maven:3.8.4-jdk-8 AS alluxio-extractor
-# Note that downloads for *-SNAPSHOT tarballs are not available.
-WORKDIR /opt
-RUN cd /opt && \
-    ARCH=$(dpkg --print-architecture) && \
-    echo ARCH=${ARCH} && \
-    wget https://mztest.obs.cn-central-221.ovaijisuan.com:443/alluxio-tar-ball/${ARCH}/alluxio-2.9.1-SNAPSHOT.tar.gz && \
-    tar -xzf *.tar.gz && rm *.tar.gz && \
-    ln -s alluxio-* alluxio
-ARG ENABLE_DYNAMIC_USER=false
+## We have to do an ADD to put the tarball into extractor, then do a COPY with chown into final
+## ADD then chown in two steps will double the image size
+##   See - https://stackoverflow.com/questions/30085621/why-does-chown-increase-size-of-docker-image
+##       - https://github.com/moby/moby/issues/5505
+##       - https://github.com/moby/moby/issues/6119
+## ADD with chown doesn't chown the files inside tarball
+##   See - https://github.com/moby/moby/issues/35525
+#FROM alpine:3.10.2 AS alluxio-extractor
+## Note that downloads for *-SNAPSHOT tarballs are not available.
+#ARG ALLUXIO_TARBALL=http://downloads.alluxio.io/downloads/files/2.9.1-SNAPSHOT/alluxio-2.9.1-SNAPSHOT-bin.tar.gz
+## (Alert):It's not recommended to set this Argument to true, unless you know exactly what you are doing
+#ARG ENABLE_DYNAMIC_USER=false
+#
+#ADD ${ALLUXIO_TARBALL} /opt/
+## Remote tarball needs to be untarred. Local tarball is untarred automatically.
+## Use ln -s instead of mv to avoid issues with Centos (see https://github.com/moby/moby/issues/27358)
+#RUN cd /opt && \
+#    (if ls | grep -q ".tar.gz"; then tar -xzf *.tar.gz && rm *.tar.gz; fi) && \
+#    ln -s alluxio-* alluxio
+#
+#RUN if [ ${ENABLE_DYNAMIC_USER} = "true" ] ; then \
+#       chmod -R 777 /opt/* ; \
+#    fi
+
+FROM swr.cn-central-221.ovaijisuan.com/taichu-studio/alluxio-maven:3.8.4-jdk-8 AS alluxio-compiler
+RUN mkdir -p /opt/src/alluxio && \
+    cd /opt/src/alluxio && \
+    go env -w  GOPROXY=https://goproxy.cn,direct
+
+WORKDIR /opt/src/alluxio
+COPY . .
+COPY maven/settings.xml /usr/share/maven/ref/
+COPY maven/settings.xml /usr/share/maven/conf/
+RUN cd /opt/src/alluxio && /opt/src/alluxio/dev/scripts/generate-tarballs release -mvn-args "-Dlicense.skip=true,-T8C"
+
+# Remote tarball needs to be untarred. Local tarball is untarred automatically.
+# Use ln -s instead of mv to avoid issues with Centos (see https://github.com/moby/moby/issues/27358)
+RUN cd /opt && mv /opt/src/alluxio/*.tar.gz . && \
+    (if ls | grep -q ".tar.gz"; then tar -xzf *.tar.gz && rm *.tar.gz; fi) && \
+    ln -s alluxio-* alluxio && ls -lhrt /opt && rm -rf /opt/src
 
 RUN if [ ${ENABLE_DYNAMIC_USER} = "true" ] ; then \
        chmod -R 777 /opt/* ; \
@@ -99,18 +122,11 @@ ARG ENABLE_DYNAMIC_USER=true
 # Add Tini for Alluxio helm charts (https://github.com/Alluxio/alluxio/pull/12233)
 # - https://github.com/krallin/tini
 ENV TINI_VERSION v0.18.0
+ADD https://ghproxy.com/https://github.com/krallin/tini/releases/download/${TINI_VERSION}/tini-static /usr/local/bin/tini
+RUN chmod +x /usr/local/bin/tini
 
 # If Alluxio user, group, gid, and uid aren't root|0, create the alluxio user and set file permissions accordingly
-RUN yum install -y wget && \
-    ARCH=$(uname -m) && \
-    echo ARCH=${ARCH} && \
-    if [ ${ARCH} == "amd64" ] || [ ${ARCH} == "x86_64" ]; then \
-      wget -O /usr/local/bin/tini https://github.com/krallin/tini/releases/download/${TINI_VERSION}/tini-static; \
-    else \
-      wget -O /usr/local/bin/tini https://github.com/krallin/tini/releases/download/${TINI_VERSION}/tini-static-arm64; \
-    fi && \
-    chmod +x /usr/local/bin/tini && \
-    if [ ${ALLUXIO_USERNAME} != "root" ] \
+RUN if [ ${ALLUXIO_USERNAME} != "root" ] \
     && [ ${ALLUXIO_GROUP} != "root" ] \
     && [ ${ALLUXIO_UID} -ne 0 ] \
     && [ ${ALLUXIO_GID} -ne 0 ]; then \
@@ -126,12 +142,15 @@ RUN yum install -y wget && \
 
 # Docker 19.03+ required to expand variables in --chown argument
 # https://github.com/moby/buildkit/pull/926#issuecomment-503943557
-COPY --from=alluxio-extractor --chown=${ALLUXIO_USERNAME}:${ALLUXIO_GROUP} /opt /opt/
-COPY --chown=${ALLUXIO_USERNAME}:${ALLUXIO_GROUP} conf /opt/alluxio/conf/
-COPY --chown=${ALLUXIO_USERNAME}:${ALLUXIO_GROUP} entrypoint.sh /
+COPY --from=alluxio-compiler --chown=${ALLUXIO_USERNAME}:${ALLUXIO_GROUP} /opt /opt/
+COPY --chown=${ALLUXIO_USERNAME}:${ALLUXIO_GROUP} integration/docker/conf /opt/alluxio/conf/
+COPY --chown=${ALLUXIO_USERNAME}:${ALLUXIO_GROUP} integration/docker/entrypoint.sh /
 COPY --from=csi-dev /usr/local/bin/alluxio-csi /usr/local/bin/
 
-RUN if [ ${ENABLE_DYNAMIC_USER} = "true" ] ; then \
+RUN cd /opt && \
+    (if ls | grep -q ".tar.gz"; then tar -xzf *.tar.gz && rm *.tar.gz; fi) && \
+    ln -s alluxio-* alluxio && \
+    if [ ${ENABLE_DYNAMIC_USER} = "true" ] ; then \
        chmod -R 777 /journal; \
        chmod -R 777 /mnt; \
        # Enable user_allow_other option for fuse in non-root mode

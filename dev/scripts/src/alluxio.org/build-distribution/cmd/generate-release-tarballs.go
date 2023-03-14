@@ -14,6 +14,7 @@ package cmd
 import (
 	"flag"
 	"fmt"
+	"runtime"
 )
 
 func Release(args []string) error {
@@ -32,9 +33,13 @@ func Release(args []string) error {
 }
 
 func generateTarballs() error {
-	fmt.Printf("Generating tarball %v\n", fmt.Sprintf("alluxio-%v-bin.tar.gz", versionMarker))
+	//var skipUI = true
+	fmt.Printf("Generating tarball %v, os arch %s\n", fmt.Sprintf("alluxio-%v-bin.tar.gz", versionMarker), runtime.GOARCH)
+	//if runtime.GOARCH == "amd64" {
+	//	skipUI = false
+	//}
 	// Do not skip UI and Helm
-	if err := generateTarball(false, false); err != nil {
+	if err := generateTarball(true, true); err != nil {
 		return err
 	}
 	return nil
